@@ -225,13 +225,14 @@ func setup() error {
 	if gpuNodeCount == 0 {
 		return fmt.Errorf("no gpu nodes in mock cluster")
 	}
-	gpuNodeOSTag, err := clusterPolicyController.getGPUNodeOSTag()
+	gpuNodeOSRelease, gpuNodeOSTag, err := clusterPolicyController.getGPUNodeOSInfo()
 	if err != nil {
 		return fmt.Errorf("unable to get GPU node tag: %w", err)
 	}
 
 	clusterPolicyController.hasGPUNodes = gpuNodeCount != 0
 	clusterPolicyController.hasNFDLabels = hasNFDLabels
+	clusterPolicyController.gpuNodeOSRelease = gpuNodeOSRelease
 	clusterPolicyController.gpuNodeOSTag = gpuNodeOSTag
 
 	// setup kernelVersionMap for pre-compiled driver tests
@@ -1925,12 +1926,22 @@ func TestDriverPrecompiledLibModulesSuse(t *testing.T) {
 
 	for _, osTag := range osTags {
 		t.Run(osTag, func(t *testing.T) {
-			// Save original OS tag and restore after test
+			// Save original OS info and restore after test
+			originalOSRelease := clusterPolicyController.gpuNodeOSRelease
 			originalOSTag := clusterPolicyController.gpuNodeOSTag
 			defer func() {
+				clusterPolicyController.gpuNodeOSRelease = originalOSRelease
 				clusterPolicyController.gpuNodeOSTag = originalOSTag
 			}()
 
+			switch {
+			case strings.HasPrefix(osTag, "sles"):
+				clusterPolicyController.gpuNodeOSRelease = "sles"
+			case strings.HasPrefix(osTag, "sl-micro"):
+				clusterPolicyController.gpuNodeOSRelease = "sl-micro"
+			default:
+				t.Fatalf("unsupported SUSE osTag in test: %s", osTag)
+			}
 			clusterPolicyController.gpuNodeOSTag = osTag
 
 			cp := getDriverTestInput("precompiled")

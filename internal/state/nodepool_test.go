@@ -60,6 +60,20 @@ func TestGetOSTag(t *testing.T) {
 			expectError: false,
 		},
 		{
+			description: "talos version with v prefix",
+			osRelease:   "talos",
+			osVersion:   "v1.12.6",
+			expected:    "talosv1.12.6",
+			expectError: false,
+		},
+		{
+			description: "archlinux rolling version",
+			osRelease:   "archlinux",
+			osVersion:   "rolling",
+			expected:    "archlinuxrolling",
+			expectError: false,
+		},
+		{
 			description:  "invalid os version",
 			osRelease:    "rhel",
 			osVersion:    "A.10",

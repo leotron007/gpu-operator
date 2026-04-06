@@ -142,17 +142,40 @@ func getNodePools(ctx context.Context, k8sClient client.Client, selector map[str
 
 func getOSTag(osRelease, osVersion string) (string, error) {
 	osMajorVersion := strings.Split(osVersion, ".")[0]
-	osMajorNumber, err := strconv.Atoi(osMajorVersion)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse os version: %w", err)
-	}
 
 	var osTagSuffix string
 	// If the OS is RockyLinux or RHEL 10 & above, we will omit the minor version when constructing the os image tag
-	if osRelease == "rocky" || (osRelease == "rhel" && osMajorNumber >= 10) {
+	switch osRelease {
+	case "rocky":
 		osTagSuffix = osMajorVersion
-	} else {
+	case "rhel":
+		osMajorNumber, err := parseOSMajorVersion(osVersion)
+		if err != nil {
+			return "", fmt.Errorf("failed to parse os version: %w", err)
+		}
+		if osMajorNumber >= 10 {
+			osTagSuffix = osMajorVersion
+		} else {
+			osTagSuffix = osVersion
+		}
+	default:
 		osTagSuffix = osVersion
 	}
 	return fmt.Sprintf("%s%s", osRelease, osTagSuffix), nil
+}
+
+func parseOSMajorVersion(osVersion string) (int, error) {
+	osMajorVersion := strings.Split(osVersion, ".")[0]
+	osMajorVersion = strings.TrimSpace(osMajorVersion)
+	osMajorVersion = strings.TrimPrefix(strings.TrimPrefix(osMajorVersion, "v"), "V")
+	if osMajorVersion == "" {
+		return 0, fmt.Errorf("empty OS major version")
+	}
+
+	osMajorNumber, err := strconv.Atoi(osMajorVersion)
+	if err != nil {
+		return 0, err
+	}
+
+	return osMajorNumber, nil
 }

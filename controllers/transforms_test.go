@@ -3016,7 +3016,7 @@ func TestTransformDriver(t *testing.T) {
 		t.Run(tc.description, func(t *testing.T) {
 			err := TransformDriver(tc.ds.DaemonSet, tc.cpSpec,
 				ClusterPolicyController{client: tc.client, runtime: gpuv1.Containerd,
-					operatorNamespace: "test-ns", logger: ctrl.Log.WithName("test"), gpuNodeOSTag: "ubuntu20.04"})
+					operatorNamespace: "test-ns", logger: ctrl.Log.WithName("test"), gpuNodeOSRelease: "ubuntu", gpuNodeOSTag: "ubuntu20.04"})
 			if tc.errorExpected {
 				require.Error(t, err)
 				return
@@ -3430,7 +3430,7 @@ func TestTransformDriverWithLicensingConfig(t *testing.T) {
 		t.Run(tc.description, func(t *testing.T) {
 			err := TransformDriver(tc.ds.DaemonSet, tc.cpSpec,
 				ClusterPolicyController{client: tc.client, runtime: gpuv1.Containerd,
-					operatorNamespace: "test-ns", logger: ctrl.Log.WithName("test"), gpuNodeOSTag: "ubuntu20.04"})
+					operatorNamespace: "test-ns", logger: ctrl.Log.WithName("test"), gpuNodeOSRelease: "ubuntu", gpuNodeOSTag: "ubuntu20.04"})
 			if tc.errorExpected {
 				require.Error(t, err)
 				return
@@ -3562,7 +3562,7 @@ func TestTransformDriverWithResources(t *testing.T) {
 		t.Run(tc.description, func(t *testing.T) {
 			err := TransformDriver(tc.ds.DaemonSet, tc.cpSpec,
 				ClusterPolicyController{client: tc.client, runtime: gpuv1.Containerd,
-					operatorNamespace: "test-ns", logger: ctrl.Log.WithName("test"), gpuNodeOSTag: "ubuntu20.04"})
+					operatorNamespace: "test-ns", logger: ctrl.Log.WithName("test"), gpuNodeOSRelease: "ubuntu", gpuNodeOSTag: "ubuntu20.04"})
 			if tc.errorExpected {
 				require.Error(t, err)
 				return
@@ -3657,7 +3657,7 @@ func TestTransformDriverRDMA(t *testing.T) {
 
 	err := TransformDriver(ds.DaemonSet, cpSpec,
 		ClusterPolicyController{client: mockClient, runtime: gpuv1.Containerd,
-			operatorNamespace: "test-ns", logger: ctrl.Log.WithName("test"), gpuNodeOSTag: "ubuntu20.04"})
+			operatorNamespace: "test-ns", logger: ctrl.Log.WithName("test"), gpuNodeOSRelease: "ubuntu", gpuNodeOSTag: "ubuntu20.04"})
 	require.NoError(t, err)
 
 	require.EqualValues(t, expectedDs, ds)
@@ -3740,7 +3740,7 @@ func TestTransformDriverVGPUTopologyConfig(t *testing.T) {
 
 	err := TransformDriver(ds.DaemonSet, cpSpec,
 		ClusterPolicyController{client: mockClient, runtime: gpuv1.Containerd,
-			operatorNamespace: "test-ns", logger: ctrl.Log.WithName("test"), gpuNodeOSTag: "ubuntu20.04"})
+			operatorNamespace: "test-ns", logger: ctrl.Log.WithName("test"), gpuNodeOSRelease: "ubuntu", gpuNodeOSTag: "ubuntu20.04"})
 	require.NoError(t, err)
 	require.EqualValues(t, expectedDs, ds)
 }
@@ -4173,7 +4173,7 @@ func TestTransformDriverWithAdditionalConfig(t *testing.T) {
 		t.Run(tc.description, func(t *testing.T) {
 			err := TransformDriver(tc.ds.DaemonSet, tc.cpSpec,
 				ClusterPolicyController{client: tc.client, runtime: gpuv1.Containerd,
-					operatorNamespace: "test-ns", logger: ctrl.Log.WithName("test"), gpuNodeOSTag: "ubuntu24.04"})
+					operatorNamespace: "test-ns", logger: ctrl.Log.WithName("test"), gpuNodeOSRelease: "ubuntu", gpuNodeOSTag: "ubuntu24.04"})
 			if tc.errorExpected {
 				require.Error(t, err)
 				require.Equal(t, tc.errorMessage, err.Error())

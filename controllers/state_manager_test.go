@@ -17,15 +17,118 @@
 package controllers
 
 import (
+	"context"
 	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	gpuv1 "github.com/NVIDIA/gpu-operator/api/nvidia/v1"
 )
+
+func TestGetGPUNodeOSInfo(t *testing.T) {
+	testCases := []struct {
+		name              string
+		osName            string
+		osVersion         string
+		expected          string
+		expectError       bool
+		errorContainsText string
+	}{
+		{
+			name:      "talos version with v prefix",
+			osName:    "talos",
+			osVersion: "v1.12.6",
+			expected:  "talosv1.12.6",
+		},
+		{
+			name:      "rhel 10 omits minor version",
+			osName:    "rhel",
+			osVersion: "10.2",
+			expected:  "rhel10",
+		},
+		{
+			name:      "rocky omits minor version",
+			osName:    "rocky",
+			osVersion: "9.5",
+			expected:  "rocky9",
+		},
+		{
+			name:      "ubuntu preserves full version",
+			osName:    "ubuntu",
+			osVersion: "24.04",
+			expected:  "ubuntu24.04",
+		},
+		{
+			name:      "sles preserves dotted version",
+			osName:    "sles",
+			osVersion: "15.6",
+			expected:  "sles15.6",
+		},
+		{
+			name:      "sles preserves service-pack version",
+			osName:    "sles",
+			osVersion: "15-SP6",
+			expected:  "sles15-SP6",
+		},
+		{
+			name:      "sl-micro preserves dotted version",
+			osName:    "sl-micro",
+			osVersion: "6.0",
+			expected:  "sl-micro6.0",
+		},
+		{
+			name:      "archlinux preserves rolling version",
+			osName:    "archlinux",
+			osVersion: "rolling",
+			expected:  "archlinuxrolling",
+		},
+		{
+			name:              "rhel invalid major version errors",
+			osName:            "rhel",
+			osVersion:         "A.10",
+			expectError:       true,
+			errorContainsText: "error processing OS major version",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			require.NoError(t, corev1.AddToScheme(scheme))
+
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "gpu-node-1",
+					Labels: map[string]string{
+						commonGPULabelKey:      commonGPULabelValue,
+						nfdOSReleaseIDLabelKey: tc.osName,
+						nfdOSVersionIDLabelKey: tc.osVersion,
+					},
+				},
+			}
+
+			client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
+			controller := ClusterPolicyController{ctx: context.Background(), client: client}
+
+			osName, osTag, err := controller.getGPUNodeOSInfo()
+			if tc.expectError {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.errorContainsText)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tc.osName, osName)
+			require.Equal(t, tc.expected, osTag)
+		})
+	}
+}
 
 func TestGetRuntimeString(t *testing.T) {
 	testCases := []struct {

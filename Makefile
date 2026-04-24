@@ -245,7 +245,7 @@ validate-helm-values: cmds
 		sed '/^--/d' | \
 		./gpuop-cfg validate clusterpolicy --input="-"
 
-# Generate a list of all container images required to run the GPU Operator.
+# Generate a list of all container images that could be deployed by the GPU Operator.
 # Useful for pre-pulling images in air-gapped environments.
 # Usage:
 #   make generate-image-list                              # prints to stdout (queries registry for OS variants)

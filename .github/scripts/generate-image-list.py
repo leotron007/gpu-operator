@@ -13,7 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Generate a complete list of container images required to run the GPU Operator.
+"""Generate a complete list of container images that could be pulled and deployed
+by the GPU Operator.
 
 Parses the Helm chart's values.yaml (and the bundled NFD subchart) to produce a
 plain-text file with one fully-qualified image reference per line.  The list is
@@ -207,7 +208,7 @@ def _extract_operator_images(
     """
     images: set[str] = set()
 
-    def add(repo: str, img: str, ver: str | None) -> None:
+    def add_image_ref(repo: str, img: str, ver: str | None) -> None:
         """Add a single-tag image, substituting app_version when version is absent."""
         if ver == "":
             return  # empty string = user-supplied image not set; skip
@@ -241,7 +242,7 @@ def _extract_operator_images(
         comp = values.get(key, {})
         # Use explicit version from component if specified, otherwise use override if provided
         version = comp.get("version") or operator_version
-        add(comp.get("repository", ""), comp.get("image", ""), version)
+        add_image_ref(comp.get("repository", ""), comp.get("image", ""), version)
 
     # ------------------------------------------------------------------
     # Components with explicit, pinned versions
@@ -255,33 +256,33 @@ def _extract_operator_images(
         (driver.get("version") or "").strip(),
     )
 
-    # k8s-driver-manager sidecar
+    # k8s-driver-manager
     dm = driver.get("manager", {})
-    add(dm.get("repository", ""), dm.get("image", ""), dm.get("version", ""))
+    add_image_ref(dm.get("repository", ""), dm.get("image", ""), dm.get("version", ""))
 
     # Container Toolkit
     tk = values.get("toolkit", {})
-    add(tk.get("repository", ""), tk.get("image", ""), tk.get("version", ""))
+    add_image_ref(tk.get("repository", ""), tk.get("image", ""), tk.get("version", ""))
 
     # Device Plugin
     dp = values.get("devicePlugin", {})
-    add(dp.get("repository", ""), dp.get("image", ""), dp.get("version", ""))
+    add_image_ref(dp.get("repository", ""), dp.get("image", ""), dp.get("version", ""))
 
     # Standalone DCGM hostengine (optional, disabled by default)
     dcgm = values.get("dcgm", {})
-    add(dcgm.get("repository", ""), dcgm.get("image", ""), dcgm.get("version", ""))
+    add_image_ref(dcgm.get("repository", ""), dcgm.get("image", ""), dcgm.get("version", ""))
 
     # DCGM Exporter
     de = values.get("dcgmExporter", {})
-    add(de.get("repository", ""), de.get("image", ""), de.get("version", ""))
+    add_image_ref(de.get("repository", ""), de.get("image", ""), de.get("version", ""))
 
     # GPU Feature Discovery (shares the device-plugin image)
     gfd = values.get("gfd", {})
-    add(gfd.get("repository", ""), gfd.get("image", ""), gfd.get("version", ""))
+    add_image_ref(gfd.get("repository", ""), gfd.get("image", ""), gfd.get("version", ""))
 
     # MIG Manager
     mm = values.get("migManager", {})
-    add(mm.get("repository", ""), mm.get("image", ""), mm.get("version", ""))
+    add_image_ref(mm.get("repository", ""), mm.get("image", ""), mm.get("version", ""))
 
     # GPUDirect Storage – OS-specific image (e.g. 2.27.3-ubuntu22.04)
     gds = values.get("gds", {})
@@ -303,29 +304,29 @@ def _extract_operator_images(
     # The driverManager sidecar is pinned.
     vgpu = values.get("vgpuManager", {})
     vgpu_dm = vgpu.get("driverManager", {})
-    add(vgpu_dm.get("repository", ""), vgpu_dm.get("image", ""), vgpu_dm.get("version", ""))
+    add_image_ref(vgpu_dm.get("repository", ""), vgpu_dm.get("image", ""), vgpu_dm.get("version", ""))
 
     # vGPU Device Manager
     vdm = values.get("vgpuDeviceManager", {})
-    add(vdm.get("repository", ""), vdm.get("image", ""), vdm.get("version", ""))
+    add_image_ref(vdm.get("repository", ""), vdm.get("image", ""), vdm.get("version", ""))
 
     # VFIO Manager (and its driverManager sidecar)
     vfio = values.get("vfioManager", {})
-    add(vfio.get("repository", ""), vfio.get("image", ""), vfio.get("version", ""))
+    add_image_ref(vfio.get("repository", ""), vfio.get("image", ""), vfio.get("version", ""))
     vfio_dm = vfio.get("driverManager", {})
-    add(vfio_dm.get("repository", ""), vfio_dm.get("image", ""), vfio_dm.get("version", ""))
+    add_image_ref(vfio_dm.get("repository", ""), vfio_dm.get("image", ""), vfio_dm.get("version", ""))
 
     # Sandbox Device Plugin (KubeVirt GPU passthrough)
     sdp = values.get("sandboxDevicePlugin", {})
-    add(sdp.get("repository", ""), sdp.get("image", ""), sdp.get("version", ""))
+    add_image_ref(sdp.get("repository", ""), sdp.get("image", ""), sdp.get("version", ""))
 
     # Kata Sandbox Device Plugin
     ksdp = values.get("kataSandboxDevicePlugin", {})
-    add(ksdp.get("repository", ""), ksdp.get("image", ""), ksdp.get("version", ""))
+    add_image_ref(ksdp.get("repository", ""), ksdp.get("image", ""), ksdp.get("version", ""))
 
     # Confidential Computing Manager
     cc = values.get("ccManager", {})
-    add(cc.get("repository", ""), cc.get("image", ""), cc.get("version", ""))
+    add_image_ref(cc.get("repository", ""), cc.get("image", ""), cc.get("version", ""))
 
     # kataManager has no image fields in values.yaml (operator-managed); skip.
 

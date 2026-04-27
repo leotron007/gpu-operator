@@ -1,4 +1,4 @@
-# Copyright (c) 2021, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,56 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-BUILD_MULTI_ARCH_IMAGES ?= false
-DOCKER ?= docker
-GO_CMD ?= go
-PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
-
-##### Global variables #####
-include $(CURDIR)/versions.mk
-
-MODULE := github.com/NVIDIA/gpu-operator
-BUILDER_IMAGE ?= golang:$(GOLANG_VERSION)
-GOPROXY ?= https://proxy.golang.org,direct
-
-ifeq ($(IMAGE_NAME),)
+# Image URL to use all building/pushing image targets
 REGISTRY ?= nvcr.io/nvidia/cloud-native
-IMAGE_NAME := $(REGISTRY)/gpu-operator
-endif
-
+IMAGE_NAME ?= gpu-operator
+VERSION ?= $(shell git describe --tags --dirty --always 2>/dev/null | sed 's/^v//')
 IMAGE_TAG ?= $(VERSION)
-IMAGE = $(IMAGE_NAME):$(IMAGE_TAG)
-BUILDIMAGE ?= $(IMAGE_NAME):$(IMAGE_TAG)-build
-
-OUT_IMAGE_NAME ?= $(IMAGE_NAME)
-OUT_IMAGE_VERSION ?= $(VERSION)
-OUT_IMAGE_TAG = $(OUT_IMAGE_VERSION)
-OUT_IMAGE = $(OUT_IMAGE_NAME):$(OUT_IMAGE_TAG)
-
-# CHANNELS define the bundle channels used in the bundle.
-# Add a new line here if you would like to change its default config. (E.g CHANNELS = "preview,fast,stable")
-# To re-generate a bundle for other specific channels without changing the standard setup, you can:
-# - use the CHANNELS as arg of the bundle target (e.g make bundle CHANNELS=preview,fast,stable)
-# - use environment variables to overwrite this value (e.g export CHANNELS="preview,fast,stable")
-ifneq ($(origin CHANNELS), undefined)
-BUNDLE_CHANNELS := --channels=$(CHANNELS)
-endif
-
-# DEFAULT_CHANNEL defines the default channel used in the bundle.
-# Add a new line here if you would like to change its default config. (E.g DEFAULT_CHANNEL = "stable")
-# To re-generate a bundle for any other default channel without changing the default setup, you can:
-# - use the DEFAULT_CHANNEL as arg of the bundle target (e.g make bundle DEFAULT_CHANNEL=stable)
-# - use environment variables to overwrite this value (e.g export DEFAULT_CHANNEL="stable")
-ifneq ($(origin DEFAULT_CHANNEL), undefined)
-BUNDLE_DEFAULT_CHANNEL := --default-channel=$(DEFAULT_CHANNEL)
-endif
-BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
-
-# BUNDLE_IMAGE defines the image:tag used for the bundle.
-# You can use it as an arg. (E.g make bundle-build BUNDLE_IMAGE=<some-registry>/<project-name-bundle>:<tag>)
-BUNDLE_IMAGE ?= gpu-operator-bundle:$(VERSION)
-
-BUNDLE_IMAGE_BUILD_PLATFORM_OPTIONS ?= --platform=linux/amd64,linux/arm64
+IMG ?= $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -70,230 +26,112 @@ else
 GOBIN=$(shell go env GOBIN)
 endif
 
+# Setting SHELL to bash allows bash commands to be run in recipes.
+SHELL = /usr/bin/env bash -o pipefail
+.SHELLFLAGS = -ec
+
+# Go build settings
+GO_CMD ?= go
+GOFLAGS ?= -mod=mod
 GOOS ?= linux
-VERSION_PKG = github.com/NVIDIA/gpu-operator/internal/info
+GOARCH ?= amd64
 
-PWD = $(shell pwd)
-CLIENT_GEN = $(PWD)/bin/client-gen
-CONTROLLER_GEN = $(PWD)/bin/controller-gen
-KUSTOMIZE = $(PWD)/bin/kustomize
-GCOV2LCOV ?= $(PWD)/bin/gcov2lcov
+# Tools
+CONTROLLER_GEN ?= $(GOBIN)/controller-gen
+KUSTOMIZE ?= $(GOBIN)/kustomize
+ENVTEST ?= $(GOBIN)/setup-envtest
 
-# Run against the configured Kubernetes cluster in ~/.kube/config
-run: generate check manifests
-	go run ./cmd/gpu-operator/...
+.PHONY: all
+all: build
 
-# Install CRDs into a cluster
-install: manifests install-tools
-	$(KUSTOMIZE) build config/crd | kubectl apply -f -
+##@ General
 
-# Uninstall CRDs from a cluster
-uninstall: manifests install-tools
-	$(KUSTOMIZE) build config/crd | kubectl delete -f -
+.PHONY: help
+help: ## Display this help.
+	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
-# Deploy gpu-operator in the configured Kubernetes cluster in ~/.kube/config
-deploy: manifests generate-env install-tools
-	cd config/manager && $(KUSTOMIZE) edit set image gpu-operator=${IMAGE}
-	$(KUSTOMIZE) build config/default | kubectl apply -f -
+##@ Development
 
-generate-env:
-	./hack/prepare-env.sh
+.PHONY: manifests
+manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
 
-# UnDeploy gpu-operator from the configured Kubernetes cluster in ~/.kube/config
-undeploy:
-	$(KUSTOMIZE) build config/default | kubectl delete -f -
-
-# Generate manifests e.g. CRD, RBAC etc.
-manifests: install-tools
-	@echo "- Generating CRDs from the codebase"
-	$(CONTROLLER_GEN) rbac:roleName=gpu-operator-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
-
-# Generate code
-generate: install-tools
+.PHONY: generate
+generate: controller-gen ## Generate code containing DeepCopyObject, DeepCopyInto, and DeepCopyInto implementations.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
 
-generate-clientset: install-tools
-	$(CLIENT_GEN) --go-header-file=$(CURDIR)/hack/boilerplate.go.txt \
-		--clientset-name "versioned" \
-		--output-dir $(CURDIR)/api \
-		--output-pkg $(MODULE)/api \
-		--input-base $(CURDIR)/api \
-		--input nvidia/v1,nvidia/v1alpha1
+.PHONY: fmt
+fmt: ## Run go fmt against code.
+	$(GO_CMD) fmt ./...
 
-# Generate bundle manifests and metadata, then validate generated files.
-.PHONY: bundle
-bundle: manifests install-tools
-	operator-sdk generate kustomize manifests -q
-	cd config/manager && $(KUSTOMIZE) edit set image gpu-operator=$(IMAGE)
-	$(KUSTOMIZE) build config/manifests | operator-sdk generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)
-	operator-sdk bundle validate ./bundle
+.PHONY: vet
+vet: ## Run go vet against code.
+	$(GO_CMD) vet ./...
 
-# Build the bundle image.
-build-bundle-image:
-	$(DOCKER) build \
-    $(BUNDLE_IMAGE_BUILD_PLATFORM_OPTIONS) \
-	--build-arg DEFAULT_CHANNEL=$(DEFAULT_CHANNEL) \
-	--build-arg GIT_COMMIT=$(GIT_COMMIT) \
-	-f docker/bundle.Dockerfile -t $(BUNDLE_IMAGE) .
+.PHONY: test
+test: manifests generate fmt vet envtest ## Run tests.
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-path $(LOCALBIN) -p path)" $(GO_CMD) test ./... -coverprofile cover.out
 
-# Push the bundle image.
-push-bundle-image: build-bundle-image
-	$(DOCKER) push $(BUNDLE_IMAGE)
-
-# Define local and dockerized golang targets
-
-CMDS := $(patsubst ./cmd/%/,%,$(sort $(dir $(wildcard ./cmd/*/))))
-CMD_TARGETS := $(patsubst %,cmd-%, $(CMDS))
-
-CHECK_TARGETS := lint license-check validate-modules validate-generated-assets
-MAKE_TARGETS := build check coverage cmds $(CMD_TARGETS) $(CHECK_TARGETS)
-DOCKER_TARGETS := $(patsubst %,docker-%, $(MAKE_TARGETS))
-.PHONY: $(MAKE_TARGETS) $(DOCKER_TARGETS)
-
-# Generate an image for containerized builds
-# Note: This image is local only
-.PHONY: .build-image .pull-build-image .push-build-image
-.build-image: docker/Dockerfile.devel
-	if [ x"$(SKIP_IMAGE_BUILD)" = x"" ]; then \
-		$(DOCKER) build \
-			--progress=plain \
-			--build-arg GOLANG_VERSION="$(GOLANG_VERSION)" \
-			--tag $(BUILDIMAGE) \
-			-f $(^) \
-			docker; \
-	fi
-
-.pull-build-image:
-	$(DOCKER) pull $(BUILDIMAGE)
-
-.push-build-image:
-	$(DOCKER) push $(BUILDIMAGE)
-
-$(DOCKER_TARGETS): docker-%: .build-image
-	@echo "Running 'make $(*)' in docker container $(BUILDIMAGE)"
-	$(DOCKER) run \
-		--rm \
-		-e GOLANGCI_LINT_CACHE=/tmp/.cache \
-		-e GOCACHE=/tmp/.cache \
-		-v $(PWD):$(PWD) \
-		-w $(PWD) \
-		--user $$(id -u):$$(id -g) \
-		$(BUILDIMAGE) \
-			make $(*)
-
-check: $(CHECK_TARGETS)
-
-license-check:
-	@echo ">> checking license header"
-	@licRes=$$(for file in $$(find . -type f -iname '*.go' ! -path './vendor/*') ; do \
-               awk 'NR<=5' $$file | grep -Eq "(Copyright|generated|GENERATED)" || echo $$file; \
-       done); \
-       if [ -n "$${licRes}" ]; then \
-               echo "license header checking failed:"; echo "$${licRes}"; \
-               exit 1; \
-       fi
-
-# Apply go fmt to the codebase
-fmt:
-	go list -f '{{.Dir}}' $(MODULE)/... \
-		| xargs gofmt -s -l -d
-
-# Apply goimports -local github.com/NVIDIA/gpu-operator to the codebase
-goimports:
-	find . -name \*.go -not -name "zz_generated.deepcopy.go" -not -path "./vendor/*" \
- 		-exec goimports -local $(MODULE) -w {} \;
-
-lint:
+.PHONY: lint
+lint: ## Run golangci-lint against code.
 	golangci-lint run ./...
 
-BUILD_FLAGS = -ldflags "-s -w -X $(VERSION_PKG).gitCommit=$(GIT_COMMIT) -X $(VERSION_PKG).version=$(VERSION)"
-build:
-	go build $(BUILD_FLAGS) ./...
+##@ Build
 
-cmds: $(CMD_TARGETS)
-$(CMD_TARGETS): cmd-%:
-	CGO_ENABLED=0 GOOS=$(GOOS) \
-		go build $(BUILD_FLAGS) $(COMMAND_BUILD_OPTIONS) $(MODULE)/cmd/$(*)
+.PHONY: build
+build: manifests generate fmt vet ## Build manager binary.
+	GOOS=$(GOOS) GOARCH=$(GOARCH) $(GO_CMD) build $(GOFLAGS) -o bin/manager cmd/main.go
 
-sync-crds:
-	@echo "- Syncing CRDs into Helm and OLM packages..."
-	cp $(PROJECT_DIR)/config/crd/bases/* $(PROJECT_DIR)/deployments/gpu-operator/crds
-	cp $(PROJECT_DIR)/config/crd/bases/* $(PROJECT_DIR)/bundle/manifests
+.PHONY: run
+run: manifests generate fmt vet ## Run a controller from your host.
+	$(GO_CMD) run $(GOFLAGS) ./cmd/main.go
 
-TOOLS_DIR := $(PROJECT_DIR)/tools
-E2E_TESTS_DIR := $(PROJECT_DIR)/tests/e2e
-validate-modules:
-	@echo "- Verifying that the dependencies have expected content..."
-	go mod verify
-	@echo "- Checking for any unused/missing packages in go.mod..."
-	go mod tidy
-	@git diff --exit-code -- go.sum go.mod
-	@echo "- Checking if the vendor dir is in sync..."
-	go mod vendor
-	@git diff --exit-code -- vendor
-	@echo "- [tools] Verifying that the dependencies have expected content..."
-	go -C $(TOOLS_DIR) mod verify
-	@echo "- [tools] Checking for any unused/missing packages in go.mod..."
-	go -C $(TOOLS_DIR) mod tidy
-	@git diff --exit-code -- $(TOOLS_DIR)/go.sum $(TOOLS_DIR)/go.mod
+.PHONY: docker-build
+docker-build: ## Build docker image with the manager.
+	docker build -t $(IMG) .
 
-validate-csv: cmds
-	./gpuop-cfg validate csv --input=./bundle/manifests/gpu-operator-certified.clusterserviceversion.yaml
+.PHONY: docker-push
+docker-push: ## Push docker image with the manager.
+	docker push $(IMG)
 
-validate-helm-values: cmds
-	helm template gpu-operator deployments/gpu-operator --show-only templates/clusterpolicy.yaml --set gds.enabled=true | \
-		sed '/^--/d' | \
-		./gpuop-cfg validate clusterpolicy --input="-"
+##@ Deployment
 
-validate-generated-assets: manifests generate generate-clientset sync-crds
-	@echo "- Verifying that the generated code and manifests are in-sync..."
-	@git diff --exit-code -- api config bundle deployments
+.PHONY: install
+install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
+	$(KUSTOMIZE) build config/crd | kubectl apply -f -
 
-COVERAGE_FILE := coverage.out
-unit-test: build
-	go list -f {{.Dir}} $(MODULE)/... | grep -v /tests/e2e \
-		| xargs go test -v -coverprofile=$(COVERAGE_FILE)
+.PHONY: uninstall
+uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config.
+	$(KUSTOMIZE) build config/crd | kubectl delete --ignore-not-found -f -
 
-coverage: unit-test
-	cat $(COVERAGE_FILE) | grep -v "_mock.go" > $(COVERAGE_FILE).no-mocks
-	go tool cover -func=$(COVERAGE_FILE).no-mocks
+.PHONY: deploy
+deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
+	$(KUSTOMIZE) build config/default | kubectl apply -f -
 
-cov-report: coverage install-tools
-	$(GCOV2LCOV) -infile $(COVERAGE_FILE) -outfile lcov.info
+.PHONY: undeploy
+undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config.
+	$(KUSTOMIZE) build config/default | kubectl delete --ignore-not-found -f -
 
-##### Public rules #####
-PUSH_TARGETS := push-image
-BUILD_TARGETS := build-image
-TEST_TARGETS := test
+##@ Build Dependencies
 
-ifneq ($(BUILD_MULTI_ARCH_IMAGES),true)
-include $(CURDIR)/native-only.mk
-else
-include $(CURDIR)/multi-arch.mk
-endif
+LOCALBIN ?= $(shell pwd)/bin
+$(LOCALBIN):
+	mkdir -p $(LOCALBIN)
 
-ALL_TARGETS := $(PUSH_TARGETS) $(BUILD_TARGETS) $(TEST_TARGETS) docker-image
-.PHONY: $(ALL_TARGETS)
+ENVTEST_K8S_VERSION = 1.28.0
 
-build-%: DOCKERFILE = $(CURDIR)/docker/Dockerfile
+.PHONY: controller-gen
+controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.
+$(CONTROLLER_GEN): $(LOCALBIN)
+	$(GO_CMD) install sigs.k8s.io/controller-tools/cmd/controller-gen@latest
 
-build-image:
-		$(DOCKER) build --pull \
-		$(DOCKER_BUILD_OPTIONS) \
-		$(DOCKER_BUILD_PLATFORM_OPTIONS) \
-		--tag $(IMAGE) \
-		--build-arg VERSION="$(VERSION)" \
-		--build-arg BUILDER_IMAGE="$(BUILDER_IMAGE)" \
-		--build-arg GOLANG_VERSION="$(GOLANG_VERSION)" \
-		--build-arg GIT_COMMIT="$(GIT_COMMIT)" \
-		--build-arg GOPROXY="$(GOPROXY)" \
-		--file $(DOCKERFILE) $(CURDIR)
+.PHONY: kustomize
+kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
+$(KUSTOMIZE): $(LOCALBIN)
+	$(GO_CMD) install sigs.k8s.io/kustomize/kustomize/v5@latest
 
-# Provide a utility target to build the images to allow for use in external tools.
-# This includes https://github.com/openshift-psap/ci-artifacts
-docker-image: OUT_IMAGE ?= $(IMAGE_NAME):$(IMAGE_TAG)
-
-install-tools:
-	@echo Installing tools from tools.go
-	export GOBIN=$(PROJECT_DIR)/bin && \
-	grep '^\s*_' tools/tools.go | awk '{print $$2}' | xargs -tI % $(GO_CMD) install -mod=readonly -modfile=tools/go.mod %
+.PHONY: envtest
+envtest: $(ENVTEST) ## Download envtest-setup locally if necessary.
+$(ENVTEST): $(LOCALBIN)
+	$(GO_CMD) install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest

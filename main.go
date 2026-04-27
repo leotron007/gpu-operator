@@ -51,8 +51,9 @@ func main() {
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
-	// Defaulting leader-elect to true so this is safe to deploy in multi-replica setups out of the box.
-	flag.BoolVar(&enableLeaderElection, "leader-elect", true,
+	// Defaulting leader-elect to false for single-node personal/dev clusters where
+	// running multiple replicas is unlikely and leader election adds unnecessary overhead.
+	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false, "If set, HTTP/2 will be enabled for the metrics and webhook servers.")

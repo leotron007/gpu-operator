@@ -77,6 +77,9 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "gpu-operator.nvidia.com",
+		// Increase sync period from the default 10h to 30m so reconciliation
+		// picks up any drift faster during local development and testing.
+		SyncPeriod: func() *time.Duration { d := 30 * time.Minute; return &d }(),
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
@@ -86,9 +89,4 @@ func main() {
 	if err = (&controller.ClusterPolicyReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ClusterPolicy")
-		os.Exit(1)
-	}
-
-	if err := mgr.AddHealthzCh
+	}).SetupWit
